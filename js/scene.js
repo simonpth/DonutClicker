@@ -36,13 +36,162 @@ const tmpColor = new THREE.Color();
 const _v = new THREE.Vector3(); // scratch
 const UP = new THREE.Vector3(0, 1, 0);
 
+// ---------- donut model (shared by center, golden, background floaters and pooled minis) ----------
+const DONUT_TUBE = 0.43; // tube radius relative to ring radius 1: smallish hole
+const DONUT_FLAT = 0.85; // vertical squash of a real fried ring
+const GLAZE_LIFT = 0.03; // glaze sits this far above the dough
+const SPRINKLE_COLORS = [0xff3b3b, 0xffe03b, 0x3b8bff, 0x3bdc5a, 0xffffff, 0xff8a2b];
+const C_GOLD = new THREE.Color(0xc8823a);
+const C_DARK = new THREE.Color(0x6b3b17);
+const C_CREAM = new THREE.Color(0xf2d3a0);
+const C_PINK = new THREE.Color(0xff7eb6);
+const smooth = (a, b, x) => {
+  const t = clamp((x - a) / (b - a), 0, 1);
+  return t * t * (3 - 2 * t);
+};
+// cheap noise from integer-frequency sines: periodic around the ring and the tube, so no seams
+const donutNoise = (u, v) =>
+  0.5 * Math.sin(3 * u + 2 * v + 1.1) + 0.3 * Math.sin(5 * u - 3 * v + 0.4) + 0.2 * Math.sin(9 * u + 7 * v + 2.7);
+// glaze edge: max angle from the top face before glaze stops. Wavy, with drips down the outer rim
+const glazeLimit = (u, v) => {
+  const drip = Math.pow(Math.max(0, Math.sin(7 * u + 0.5)), 6);
+  return 1.6 + 0.2 * donutNoise(u, v) + 0.95 * drip * Math.sqrt(Math.max(0, Math.cos(v)));
+};
+const glazeMat = (color, emissive, emissiveIntensity) => new THREE.MeshPhysicalMaterial({
+  color, roughness: 0.25, clearcoat: 1, clearcoatRoughness: 0.1, sheen: 0.3, sheenRoughness: 0.5, emissive, emissiveIntensity,
+});
+const _dp = new THREE.Vector3(), _dn = new THREE.Vector3();
+const _t1 = new THREE.Vector3(), _t2 = new THREE.Vector3(), _ax = new THREE.Vector3(), _ay = new THREE.Vector3(), _ref = new THREE.Vector3();
+const _dc = new THREE.Color();
+
+// point (and optionally normal) on the noisy, flattened ring at ring angle u and tube angle v.
+// lift pushes the surface outward along the normal
+function donutPoint(u, v, lift, p, n = null) {
+  const cu = Math.cos(u), su = Math.sin(u), cv = Math.cos(v), sv = Math.sin(v);
+  const tr = DONUT_TUBE + 0.03 * donutNoise(u, v) + lift;
+  const rad = 1 + tr * cv;
+  p.set(rad * cu, rad * su * DONUT_FLAT, tr * sv);
+  if (n) n.set(cv * cu, (cv * su) / DONUT_FLAT, sv).normalize();
+  return p;
+}
+
+// torus grid with wrapped indices (no seam). keepQuad(a, b, c, d) trims quads (used for the glaze)
+function gridGeometry(tubSeg, radSeg, lift, keepQuad = null) {
+  const pos = new Array(tubSeg * radSeg * 3);
+  for (let i = 0; i < tubSeg; i++) {
+    for (let j = 0; j < radSeg; j++) {
+      donutPoint((i / tubSeg) * TAU, (j / radSeg) * TAU, lift, _dp);
+      const k = (i * radSeg + j) * 3;
+      pos[k] = _dp.x; pos[k + 1] = _dp.y; pos[k + 2] = _dp.z;
+    }
+  }
+  const idx = [];
+  for (let i = 0; i < tubSeg; i++) {
+    const i1 = (i + 1) % tubSeg;
+    for (let j = 0; j < radSeg; j++) {
+      const j1 = (j + 1) % radSeg;
+      const a = i * radSeg + j, b = i1 * radSeg + j, c = i1 * radSeg + j1, d = i * radSeg + j1;
+      if (keepQuad && !keepQuad(a, b, c, d)) continue;
+      idx.push(a, b, c, a, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+// golden-brown dough, darker toward the outer rim, pale cream fry line around the outer equator
+function paintDough(geo, tubSeg, radSeg) {
+  const col = new Float32Array(tubSeg * radSeg * 3);
+  for (let i = 0; i < tubSeg; i++) {
+    for (let j = 0; j < radSeg; j++) {
+      const u = (i / tubSeg) * TAU, v = (j / radSeg) * TAU;
+      const sv = Math.abs(Math.sin(v)), cv = Math.cos(v);
+      _dc.copy(C_GOLD).lerp(C_DARK, Math.max(0, cv) ** 2 * 0.6);
+      _dc.lerp(C_CREAM, smooth(0.55, 0.9, cv) * (1 - smooth(0.2, 0.5, sv)) * 0.85);
+      _dc.multiplyScalar(0.94 + 0.06 * donutNoise(u, v));
+      const k = (i * radSeg + j) * 3;
+      col[k] = _dc.r; col[k + 1] = _dc.g; col[k + 2] = _dc.b;
+    }
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+}
+
+// detail 'high': dough + glaze meshes and 120 sprinkle transforms/colors (center, golden, floaters)
+// detail 'low': one baked mini geometry with vertex colors (dough, pink glaze cap, sprinkle dots)
+function makeDonutParts(detail = 'high') {
+  if (detail === 'low') {
+    const tubSeg = 24, radSeg = 12;
+    const g = gridGeometry(tubSeg, radSeg, 0);
+    paintDough(g, tubSeg, radSeg);
+    const col = g.attributes.color.array;
+    for (let i = 0; i < tubSeg; i++) {
+      for (let j = 0; j < radSeg; j++) {
+        const u = (i / tubSeg) * TAU, v = (j / radSeg) * TAU;
+        const e = glazeLimit(u, v) - Math.acos(Math.sin(v));
+        const w = smooth(-0.15, 0.25, e);
+        if (w <= 0) continue;
+        const k = (i * radSeg + j) * 3;
+        _dc.setRGB(col[k], col[k + 1], col[k + 2]).lerp(C_PINK, w);
+        col[k] = _dc.r; col[k + 1] = _dc.g; col[k + 2] = _dc.b;
+      }
+    }
+    for (let placed = 0, tries = 0; placed < 6 && tries < 200; tries++) {
+      const i = (Math.random() * tubSeg) | 0, j = (Math.random() * radSeg) | 0;
+      const u = (i / tubSeg) * TAU, v = (j / radSeg) * TAU;
+      if (Math.acos(Math.sin(v)) > glazeLimit(u, v) - 0.4) continue; // only on the glaze
+      _dc.set(pick(SPRINKLE_COLORS));
+      const k = (i * radSeg + j) * 3;
+      col[k] = _dc.r; col[k + 1] = _dc.g; col[k + 2] = _dc.b;
+      placed++;
+    }
+    return { mini: g.scale(0.2, 0.2, 0.2) };
+  }
+
+  const tubSeg = 128, radSeg = 64;
+  const dough = gridGeometry(tubSeg, radSeg, 0);
+  paintDough(dough, tubSeg, radSeg);
+
+  // glaze: same torus lifted a bit, keeping only quads that are above the wavy limit
+  const edge = new Float32Array(tubSeg * radSeg);
+  for (let i = 0; i < tubSeg; i++) {
+    for (let j = 0; j < radSeg; j++) {
+      const u = (i / tubSeg) * TAU, v = (j / radSeg) * TAU;
+      edge[i * radSeg + j] = Math.acos(Math.sin(v)) - glazeLimit(u, v);
+    }
+  }
+  const glaze = gridGeometry(tubSeg, radSeg, GLAZE_LIFT, (a, b, c, d) => edge[a] + edge[b] + edge[c] + edge[d] < 0);
+
+  // sprinkles lying flat on the glaze (random top spots, random spin around the normal)
+  const mats = [], cols = [];
+  for (let s = 0; s < 120; s++) {
+    const sv = rand(0.25, 1); // sin(v) > 0.25 keeps every spot well inside the glaze
+    const v = Math.random() < 0.5 ? Math.asin(sv) : Math.PI - Math.asin(sv);
+    donutPoint(rand(0, TAU), v, GLAZE_LIFT + 0.015, _dp, _dn);
+    _ref.set(Math.abs(_dn.z) < 0.9 ? 0 : 1, 0, Math.abs(_dn.z) < 0.9 ? 1 : 0);
+    _t1.crossVectors(_dn, _ref).normalize();
+    _t2.crossVectors(_dn, _t1);
+    const a = rand(0, TAU);
+    _ay.copy(_t1).multiplyScalar(Math.cos(a)).addScaledVector(_t2, Math.sin(a)); // capsule axis, tangent
+    _ax.crossVectors(_ay, _dn);
+    const m = new THREE.Matrix4().makeBasis(_ax, _ay, _dn);
+    m.setPosition(_dp);
+    mats.push(m);
+    cols.push(new THREE.Color(pick(SPRINKLE_COLORS)));
+  }
+  return { dough, glaze, sprinkles: { mats, cols } };
+}
+
 // ---------- pooled instanced particles (one draw call per pool) ----------
 class Pool {
-  constructor(scene, geometry, count) {
+  constructor(scene, geometry, count, material = null, soft = false) {
     this.n = count;
+    this.soft = soft; // soft: instance tint is mostly washed toward white (donut pools)
     this.mesh = new THREE.InstancedMesh(
       geometry,
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, emissive: 0x222222 }),
+      material ?? new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45, emissive: 0x222222 }),
       count
     );
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -85,7 +234,8 @@ class Pool {
     p.grav = o.grav ?? 6;
     p.drag = o.drag ?? 0.8;
     p.grow = o.grow ?? 0; // size growth over life (smoke puffs)
-    this.mesh.setColorAt(idx, tmpColor.set(o.color ?? pick(PALETTE)));
+    const tint = tmpColor.set(o.color ?? pick(PALETTE));
+    this.mesh.setColorAt(idx, this.soft ? tint.lerp(WHITE, 0.55) : tint);
     this.dirty = true;
   }
 
@@ -130,6 +280,9 @@ export class DonutScene {
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.1;
     const canvas = this.renderer.domElement;
     Object.assign(canvas.style, {
       position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
@@ -143,12 +296,14 @@ export class DonutScene {
     this.ray = new THREE.Raycaster();
 
     // shared geometries
+    const donut = makeDonutParts('high');
     this.geo = {
-      dough: new THREE.TorusGeometry(1, 0.42, 28, 64),
-      glaze: new THREE.TorusGeometry(1, 0.46, 20, 64, Math.PI),
+      dough: donut.dough,
+      glaze: donut.glaze,
+      donutSprinkles: donut.sprinkles,
+      donutSprinkle: new THREE.CapsuleGeometry(0.025, 0.12, 3, 6),
       sprinkle: new THREE.CapsuleGeometry(0.035, 0.11, 3, 6),
-      mini: new THREE.TorusGeometry(0.2, 0.085, 10, 18),
-      bigMini: new THREE.TorusGeometry(0.42, 0.17, 10, 20),
+      mini: makeDonutParts('low').mini,
       confetti: new THREE.BoxGeometry(0.11, 0.11, 0.02),
       sphere: new THREE.SphereGeometry(0.16, 12, 10),
       cone: new THREE.ConeGeometry(0.16, 0.3, 10),
@@ -167,8 +322,10 @@ export class DonutScene {
 
     // shared materials
     this.mat = {
-      dough: new THREE.MeshStandardMaterial({ color: 0xe9a85c, roughness: 0.75 }),
-      glaze: new THREE.MeshStandardMaterial({ color: 0xff5fa2, roughness: 0.2, emissive: 0x5a0f2e, emissiveIntensity: 0.4 }),
+      dough: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72 }),
+      glaze: glazeMat(0xff7eb6, 0x5a0f2e, 0.25),
+      glazes: PALETTE.map((c) => glazeMat(c, 0x000000, 0)), // background donuts
+      mini: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5 }),
       gold: new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.7, roughness: 0.25, emissive: 0xff9a00, emissiveIntensity: 0.5 }),
       glow: new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0.16, depthWrite: false }),
       hit: new THREE.MeshBasicMaterial({ visible: false }),
@@ -179,11 +336,33 @@ export class DonutScene {
     this.buildingMats = new Map();
 
     // lights
-    this.ambient = new THREE.AmbientLight(0xffffff, 0.7);
-    this.scene.add(this.ambient);
-    const dir = new THREE.DirectionalLight(0xffffff, 1.4);
-    dir.position.set(3, 5, 6);
-    this.scene.add(dir);
+    // warm sky / brown ground bounce, weak ambient, warm key and cool soft fill
+    this.hemi = new THREE.HemisphereLight(0xfff1dc, 0x5a3a22, 0.9);
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.2);
+    this.scene.add(this.hemi, this.ambient);
+    const key = new THREE.DirectionalLight(0xffe2b8, 2.0);
+    key.position.set(3, 5, 6);
+    const fill = new THREE.DirectionalLight(0xcfe0ff, 0.45);
+    fill.position.set(-5, -2, 4);
+    this.scene.add(key, fill);
+
+    // small studio environment (a few emissive panels) so the glaze has reflections
+    const envScene = new THREE.Scene();
+    envScene.background = new THREE.Color(0x14101c);
+    const panel = (w, h, color, pos) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }));
+      m.position.copy(pos);
+      m.lookAt(0, 0, 0);
+      envScene.add(m);
+    };
+    panel(6, 6, new THREE.Color(4, 3.6, 3.2), new THREE.Vector3(0, 6, 2));
+    panel(5, 8, new THREE.Color(2.4, 0.8, 1.8), new THREE.Vector3(-7, 0, 3));
+    panel(5, 8, new THREE.Color(0.9, 1.8, 2.6), new THREE.Vector3(7, 0, 3));
+    panel(8, 3, new THREE.Color(1.2, 1.1, 1.0), new THREE.Vector3(0, -5, 4));
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(envScene, 0.04).texture;
+    pmrem.dispose();
+    envScene.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } });
     this.lightA = new THREE.PointLight(0xff77cc, 60, 0, 2);
     this.lightB = new THREE.PointLight(0x77ccff, 60, 0, 2);
     this.scene.add(this.lightA, this.lightB);
@@ -216,13 +395,15 @@ export class DonutScene {
     this.donut.add(new THREE.Mesh(this.geo.dough, this.mat.dough));
     this.glazeMesh = new THREE.Mesh(this.geo.glaze, this.mat.glaze);
     this.donut.add(this.glazeMesh);
-    for (let i = 0; i < 44; i++) {
-      const a = rand(0.08, Math.PI - 0.08);
-      const s = new THREE.Mesh(this.geo.sprinkle, this.mat.palette[i % this.mat.palette.length]);
-      s.position.set(Math.cos(a), Math.sin(a), rand(0.38, 0.44));
-      s.rotation.set(rand(-0.6, 0.6), 0, a);
-      this.donut.add(s);
-    }
+    // sprinkles: one instanced draw, each lying flat on the glaze with its own color
+    const sp = this.geo.donutSprinkles;
+    this.sprinkleInst = new THREE.InstancedMesh(this.geo.donutSprinkle, new THREE.MeshStandardMaterial({ roughness: 0.35 }), sp.mats.length);
+    sp.mats.forEach((m, i) => {
+      this.sprinkleInst.setMatrixAt(i, m);
+      this.sprinkleInst.setColorAt(i, sp.cols[i]);
+    });
+    this.sprinkleInst.frustumCulled = false;
+    this.donut.add(this.sprinkleInst);
 
     // invisible click proxy (raycast target), slightly bigger than donut
     this.hit = new THREE.Mesh(this.geo.hit, this.mat.hit);
@@ -247,14 +428,16 @@ export class DonutScene {
 
     // background floaters
     this.floaters = Array.from({ length: 12 }, (_, i) => {
-      const m = new THREE.Mesh(this.geo.bigMini, this.mat.palette[i % this.mat.palette.length]);
+      const m = new THREE.Group(); // background donut: shared dough, palette-colored glaze
+      m.add(new THREE.Mesh(this.geo.dough, this.mat.dough), new THREE.Mesh(this.geo.glaze, this.mat.glazes[i % this.mat.glazes.length]));
+      m.scale.setScalar(0.42);
       this.scene.add(m);
       return { m, nx: rand(-0.95, 0.95), ny: rand(-0.9, 0.9), z: rand(-8, -3), ph: rand(0, TAU), sp: rand(1, 3) };
     });
 
     // particle pools
-    this.rain = new Pool(this.scene, this.geo.mini, 150);
-    this.minis = new Pool(this.scene, this.geo.mini, 400);
+    this.rain = new Pool(this.scene, this.geo.mini, 150, this.mat.mini, true);
+    this.minis = new Pool(this.scene, this.geo.mini, 400, this.mat.mini, true);
     this.sprinkles = new Pool(this.scene, this.geo.sprinkle, 400);
     this.confetti = new Pool(this.scene, this.geo.confetti, 900);
     this.bubbles = new Pool(this.scene, this.geo.sphere, 140); // fryer oil
@@ -460,6 +643,7 @@ export class DonutScene {
     if (this.golden) this.endGolden(this.golden);
     const group = new THREE.Group();
     group.add(new THREE.Mesh(this.geo.dough, this.mat.gold));
+    group.add(new THREE.Mesh(this.geo.glaze, this.mat.gold));
     group.add(new THREE.Mesh(this.geo.glow, this.mat.glow));
     group.scale.setScalar(0.75);
     this.scene.add(group);
@@ -861,7 +1045,7 @@ export class DonutScene {
     this.lightB.color.setHSL((t * 0.4 + 0.5) % 1, 1, 0.6);
     this.lightA.intensity = 60 + 300 * strobe + 200 * this.boomLight;
     this.lightB.intensity = 60 + 300 * Math.pow(Math.max(0, Math.sin(this.strobeT + Math.PI)), 8) + 200 * this.boomLight;
-    this.ambient.intensity = 0.7 + 0.5 * strobe;
+    this.ambient.intensity = 0.2 + 0.5 * strobe;
     this.lightA.position.set(-4 + Math.sin(t) * 2, 2.5 + Math.cos(t * 0.7) * 1.5, 5);
     this.lightB.position.set(4 + Math.cos(t * 0.8) * 2, -2.5 + Math.sin(t * 0.6) * 1.5, 4);
 

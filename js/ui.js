@@ -21,6 +21,24 @@ const CHAOS_TOASTS = {
   4: 'Chaos-Stufe 4 erreicht! Die Donuts haben die Kontrolle übernommen.',
 };
 const CHAOS_EMOJI = ['💥', '🍩', '✨', '🎉', '🌈', '🍭', '⭐', '🎊', '🔥', '🍬'];
+const FLASH_KEY = 'donutclicker-flashbangs';
+const GAME_SAVE_KEY = 'donutclicker-save';
+const BANG_MAX_PER_SEC = 3;   // global safety cap for flash-bangs
+
+/** Flash-bang preference: stored value, else ON unless the OS asks for reduced motion. */
+function loadFlashPref() {
+  try {
+    const v = localStorage.getItem(FLASH_KEY);
+    if (v !== null) return v === '1';
+  } catch (_) { /* storage unavailable */ }
+  return !window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+}
+
+function saveFlashPref(on) {
+  try {
+    localStorage.setItem(FLASH_KEY, on ? '1' : '0');
+  } catch (_) { /* storage unavailable */ }
+}
 
 const UPGRADE_BY_ID = new Map(UPGRADES.map((u) => [u.id, u]));
 const $ = (sel) => document.querySelector(sel);
@@ -66,11 +84,19 @@ export class UI {
       shopToggle: $('#shop-toggle'),
       btnSave: $('#btn-save'),
       btnReset: $('#btn-reset'),
+      btnFlash: $('#btn-flash'),
+      bangLayer: $('#bang-flash'),
+      warn: $('#flash-warn'),
+      warnOn: $('#warn-on'),
+      warnOff: $('#warn-off'),
     };
     this.rows = new Map();
     this.upgradeKey = null;
     this.chaos = 0;
     this.chaosLevel = null; // null until the first setChaos() call (no toasts for the initial state)
+    this.flashOn = loadFlashPref();
+    this._bangTimes = [];   // timestamps of recent flash-bangs (rate limit)
+    this._fadeT = null;
     this.tip = document.createElement('div');
     this.tip.id = 'tooltip';
     document.body.appendChild(this.tip);
@@ -78,6 +104,8 @@ export class UI {
     this.buildShop();
     this.buildTicker();
     this.bindButtons();
+    this.syncFlashButton();
+    this.maybeWarn();
     this.render();
     this.startChaos();
   }
@@ -249,6 +277,85 @@ export class UI {
       const open = this.el.shop.classList.toggle('open');
       this.el.shopToggle.textContent = open ? '▼ Schließen' : '🛒 Shop';
     });
+
+    this.el.btnFlash.addEventListener('click', () => {
+      this.setFlashOn(!this.flashOn);
+    });
+
+    this.el.warnOn.addEventListener('click', () => this.closeWarn(true));
+    this.el.warnOff.addEventListener('click', () => this.closeWarn(false));
+    // Backdrop click or Escape dismisses with the current default
+    this.el.warn.addEventListener('click', (e) => {
+      if (e.target === this.el.warn) this.closeWarn(this.flashOn);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !this.el.warn.hidden) this.closeWarn(this.flashOn);
+    });
+  }
+
+  setFlashOn(on) {
+    this.flashOn = !!on;
+    saveFlashPref(this.flashOn);
+    this.syncFlashButton();
+  }
+
+  syncFlashButton() {
+    this.el.btnFlash.textContent = this.flashOn ? '⚡ Flash-Bangs an' : '⚡ Flash-Bangs aus';
+  }
+
+  /** Shows the photosensitivity warning on the very first visit (no game save, no stored preference). */
+  maybeWarn() {
+    let first;
+    try {
+      first = localStorage.getItem(GAME_SAVE_KEY) === null && localStorage.getItem(FLASH_KEY) === null;
+    } catch (_) {
+      first = true;
+    }
+    if (!first) return;
+    this.el.warn.hidden = false;
+    this.el.warnOn.focus();
+  }
+
+  closeWarn(on) {
+    this.setFlashOn(on);
+    this.el.warn.hidden = true;
+  }
+
+  /**
+   * Stun-grenade effect: shake, slamming text, and (if enabled) a white flash
+   * plus blur/double vision. Globally limited to BANG_MAX_PER_SEC.
+   * Returns false when the call was dropped by the rate limit.
+   */
+  flashbang(strength = 1) {
+    const now = performance.now();
+    this._bangTimes = this._bangTimes.filter((t) => now - t < 1000);
+    if (this._bangTimes.length >= BANG_MAX_PER_SEC) return false;
+    this._bangTimes.push(now);
+
+    const s = Math.min(2, Math.max(0.5, Number(strength) || 1));
+    const body = document.body;
+    document.documentElement.style.setProperty('--bang', s.toFixed(2));
+
+    // Heavy screen shake (always)
+    this.restart(body, 'bangShake');
+    setTimeout(() => body.classList.remove('bangShake'), 1300);
+
+    if (this.flashOn) {
+      // Full-screen white flash: jumps to opacity 1, fades out over 2-2.5 s
+      const layer = this.el.bangLayer;
+      layer.style.setProperty('--bang-dur', `${(3 + 2 * s).toFixed(2)}s`);
+      this.restart(layer, 'go');
+
+      // Blur + desaturate + double vision, easing off via the bang-fade transition
+      body.classList.remove('bang-fade');
+      body.classList.add('bang-blur');
+      void body.offsetWidth; // commit the blurred style before the transition is enabled
+      body.classList.add('bang-fade');
+      body.classList.remove('bang-blur');
+      clearTimeout(this._fadeT);
+      this._fadeT = setTimeout(() => body.classList.remove('bang-fade'), 6500);
+    }
+    return true;
   }
 
   render() {

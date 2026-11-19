@@ -557,6 +557,85 @@ h2 {
 
 #flash.go { animation: flashAnim 0.6s ease-out; }
 
+/* ---------- Flash-Bangs ---------- */
+#bang-flash {
+  position: fixed;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 9000;
+}
+#bang-flash.go { animation: bangFade var(--bang-dur, 5s) cubic-bezier(0.6, 0, 0.9, 1) forwards; }
+@keyframes bangFade {
+  0%, 20% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Blur + washed-out colours; the transition on bang-fade eases it back to normal */
+body.bang-blur { filter: blur(8px) brightness(1.6) saturate(0.3); }
+body.bang-fade { transition: filter 6s cubic-bezier(0.7, 0, 0.9, 1); }
+/* Double vision: a red and a cyan copy of every text, offset sideways */
+body.bang-blur #ui-root { text-shadow: 3px 0 0 rgba(255, 0, 90, 0.6), -3px 0 0 rgba(0, 220, 255, 0.6); }
+body.bang-fade #ui-root { transition: text-shadow 6s cubic-bezier(0.7, 0, 0.9, 1); }
+
+body.bangShake { animation: bangShake 1.2s ease-out 1; }
+@keyframes bangShake {
+  0%, 100% { translate: 0 0; rotate: 0deg; }
+  10% { translate: calc(-14px * var(--bang, 1)) calc(8px * var(--bang, 1)); rotate: -1deg; }
+  25% { translate: calc(12px * var(--bang, 1)) calc(-10px * var(--bang, 1)); rotate: 1deg; }
+  40% { translate: calc(-10px * var(--bang, 1)) calc(6px * var(--bang, 1)); }
+  60% { translate: calc(8px * var(--bang, 1)) calc(-6px * var(--bang, 1)); }
+  80% { translate: calc(-4px * var(--bang, 1)) calc(3px * var(--bang, 1)); }
+}
+
+.bang-text {
+  position: fixed;
+  left: 50%;
+  top: 45%;
+  white-space: nowrap;
+  font-size: clamp(2rem, 9vw, 5.5rem);
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 6px 0 var(--purple), 0 0 30px var(--pink);
+  pointer-events: none;
+  z-index: 9500;
+  animation: bangSlam 1.6s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+@keyframes bangSlam {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(4) rotate(-12deg); }
+  15% { opacity: 1; transform: translate(-50%, -50%) scale(0.9) rotate(3deg); }
+  25% { transform: translate(-50%, -50%) scale(1.05) rotate(-2deg); }
+  75% { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.3) rotate(0); }
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(61, 26, 74, 0.6);
+  pointer-events: auto;
+}
+.modal[hidden] { display: none; }
+.modal-box {
+  max-width: 420px;
+  text-align: center;
+  font-weight: 700;
+}
+.modal-box p { margin: 0 0 14px; line-height: 1.4; }
+.modal-btns {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+.modal-btns .btn { animation: none; }
+
 #particle-layer {
   position: absolute;
   inset: 0;

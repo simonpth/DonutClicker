@@ -52,9 +52,16 @@ export class Sfx {
     this.master.gain.value = this._muted ? 0 : MASTER_VOL;
     this.master.connect(comp);
 
+    // Music goes through a lowpass so flash-bangs can muffle it (see flashbang())
+    this.muffle = this.ctx.createBiquadFilter();
+    this.muffle.type = 'lowpass';
+    this.muffle.Q.value = 0.7;
+    this.muffle.frequency.value = 20000;
+    this.muffle.connect(this.master);
+
     this.musicGain = this.ctx.createGain();
     this.musicGain.gain.value = 0.1;   // music sits quietly under the SFX
-    this.musicGain.connect(this.master);
+    this.musicGain.connect(this.muffle);
     return this.ctx;
   }
 
@@ -114,6 +121,7 @@ export class Sfx {
     const src = c.createBufferSource();
     src.buffer = this._noiseBuffer();
     src.playbackRate.value = rate;
+    src.loop = dur > 0.4; // the noise buffer is 1 s long; loop it for long explosions
     const flt = c.createBiquadFilter();
     flt.type = filter;
     flt.Q.value = q;
@@ -125,7 +133,8 @@ export class Sfx {
     src.connect(flt);
     flt.connect(g);
     g.connect(dest || this.master);
-    src.start(t, Math.random() * 0.5, dur);
+    if (src.loop) src.start(t, Math.random() * 0.5);
+    else src.start(t, Math.random() * 0.5, dur);
     src.stop(t + dur + 0.02);
   }
 
@@ -136,6 +145,30 @@ export class Sfx {
     const base = 520 * (0.85 + Math.random() * 0.35);
     this._tone({ type: 'sine', f0: base, f1: base * 2.2, t, dur: 0.09, vol: 0.35 });
     this._noise({ t, dur: 0.02, vol: 0.08, filter: 'highpass', f0: 2000, q: 0.5 });
+  }
+
+  // Stun grenade: sharp crack, tinnitus ring, and muffled music that clears up again.
+  flashbang() {
+    const t = this._begin('flashbang');
+    if (t == null) return;
+    // Explosion: sharp crack, a deep sub-bass boom and a long rumbling debris tail
+    this._noise({ t, dur: 0.12, vol: 1.0, filter: 'highpass', f0: 900, q: 0.5 });
+    this._noise({ t, dur: 0.6, vol: 1.0, filter: 'lowpass', f0: 6000, f1: 300, q: 0.8 });
+    this._tone({ type: 'sine', f0: 120, f1: 22, t, dur: 1.8, vol: 0.95 });
+    this._tone({ type: 'triangle', f0: 70, f1: 18, t: t + 0.02, dur: 1.4, vol: 0.6 });
+    this._noise({ t: t + 0.05, dur: 3.0, vol: 0.7, filter: 'lowpass', f0: 900, f1: 60, q: 1.2, rate: 0.5 });
+    // Second, delayed rumble "echo" bouncing off the walls
+    this._noise({ t: t + 0.35, dur: 1.6, vol: 0.35, filter: 'lowpass', f0: 500, f1: 50, q: 1 });
+    // Tinnitus: two slightly detuned sines around 4.9 kHz, fading over 6 s
+    const ring = t + 0.1;
+    this._tone({ type: 'sine', f0: 4900, t: ring, dur: 6, vol: 0.08 });
+    this._tone({ type: 'sine', f0: 4900 * 1.012, t: ring, dur: 6, vol: 0.06 });
+    // Muffle the music: lowpass drops to 250 Hz and only slowly opens again over 6 s
+    const m = this.muffle.frequency;
+    m.cancelScheduledValues(t);
+    m.setValueAtTime(250, t);
+    m.setValueAtTime(250, t + 1.5);
+    m.exponentialRampToValueAtTime(20000, t + 6);
   }
 
   // Happy rising arpeggio.

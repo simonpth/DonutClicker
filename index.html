@@ -27,6 +27,7 @@
         <dt>Klickkraft</dt><dd id="stat-power">1</dd>
       </dl>
       <button id="btn-mute" class="btn" type="button">🔊 Ton an</button>
+      <button id="btn-flash" class="btn" type="button">⚡ Flash-Bangs an</button>
       <button id="btn-save" class="btn">💾 Speichern</button>
       <button id="btn-reset" class="btn danger">💣 Zurücksetzen</button>
     </section>
@@ -45,6 +46,18 @@
     <div id="float-layer"></div>
     <div id="toast-layer"></div>
     <div id="ticker"><div id="ticker-track"></div></div>
+  </div>
+
+  <div id="bang-flash"></div>
+
+  <div id="flash-warn" class="modal" hidden>
+    <div class="panel modal-box" role="dialog" aria-modal="true" aria-labelledby="flash-warn-text">
+      <p id="flash-warn-text">⚠️ Achtung: Dieses Spiel enthält sehr viele Lichtblitze. Für Menschen mit fotosensitiver Epilepsie ungeeignet.</p>
+      <div class="modal-btns">
+        <button id="warn-on" class="btn" type="button">Flash-Bangs an</button>
+        <button id="warn-off" class="btn danger" type="button">Flash-Bangs aus</button>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="js/main.js"></script>

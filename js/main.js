@@ -24,9 +24,27 @@ btnMute.addEventListener('click', () => {
 });
 syncMuteButton();
 
+// ---------- Flash-Bangs ----------
+// Single entry point: the UI rate limit (3/s) decides whether the effect plays at all.
+function bang(strength = 1) {
+  if (!ui.flashbang(strength)) return;
+  sfx.flashbang();
+  scene.flashbang?.(strength);
+  document.dispatchEvent(new CustomEvent('dc:flashbang', { detail: { strength } }));
+}
+
+// Random flash-bangs while idle: rare at chaos 0 (~1/60 per s), ~every 3 s at chaos 3
+function idleBangLoop() {
+  const c = Math.min(chaos, 3);
+  const p = (1 / 60) * Math.pow(20, c / 3);
+  if (Math.random() < p) bang(1);
+}
+setInterval(idleBangLoop, 1000);
+
 // ---------- Chaos ----------
 // chaos = Σ_i log2(1 + count_i) * (1 + i*0.6) / 12  (grows with every building bought)
 let chaos = 0;
+let chaosLevelSeen = null;
 function computeChaos() {
   let sum = 0;
   BUILDINGS.forEach((b, i) => {
@@ -38,6 +56,10 @@ function applyChaos() {
   chaos = computeChaos();
   scene.setChaos?.(chaos);
   ui.setChaos(chaos);
+  document.dispatchEvent(new CustomEvent('dc:chaos', { detail: { level: chaos } }));
+  const lvl = Math.floor(chaos);
+  if (chaosLevelSeen !== null && lvl > chaosLevelSeen) bang(2);
+  chaosLevelSeen = lvl;
 }
 
 // Random extra explosion / boing sounds, more often at higher chaos
@@ -56,7 +78,10 @@ for (const b of BUILDINGS) {
 applyChaos();
 ui.render();
 if (offline > 0) {
-  setTimeout(() => ui.toast(`🌙 Willkommen zurück! Im Schlaf verdient: ${formatNumber(offline)} Donuts`), 800);
+  setTimeout(() => {
+    ui.toast(`🌙 Willkommen zurück! Im Schlaf verdient: ${formatNumber(offline)} Donuts`);
+    bang(1);
+  }, 800);
 }
 
 // ---------- Events ----------
@@ -65,6 +90,8 @@ scene.onDonutClick((x, y) => {
   sfx.click();
   scene.clickFx(x, y);
   ui.floatText(x, y, `+${formatNumber(gained)}`);
+  document.dispatchEvent(new CustomEvent('dc:click', { detail: { x, y, amount: gained } }));
+  if (game.clicks % 25 === 0) bang(1);
 });
 
 game.on('buy', (id, count) => {
@@ -73,6 +100,7 @@ game.on('buy', (id, count) => {
   scene.buyFx(id);
   sfx.buy();
   ui.toast(`🎉 ${b ? b.name : id} gekauft! Jetzt ${count}×`);
+  bang(1);
   applyChaos();
 });
 
@@ -81,17 +109,20 @@ game.on('upgrade', (id) => {
   scene.upgradeFx();
   sfx.upgrade();
   ui.toast(`⬆️ Upgrade: ${u ? u.emoji + ' ' + u.name : id}!`);
+  bang(1);
 });
 
 game.on('milestone', (n) => {
   scene.milestoneFx();
   sfx.milestone();
   ui.toast(`🏆 ${formatNumber(n)} Donuts erreicht!!!`);
+  bang(2);
 });
 
 document.addEventListener('dc:reset', () => {
   for (const b of BUILDINGS) scene.setBuildingCount(b.id, 0);
   applyChaos();
+  bang(1);
 });
 
 // ---------- Golden donut ----------
@@ -104,6 +135,7 @@ function scheduleGolden() {
       game.addDonuts(reward);
       ui.floatText(x, y, `✨ +${formatNumber(reward)}`);
       ui.toast(`✨ Goldener Donut eingefangen! Bonus: ${formatNumber(reward)} Donuts`);
+      bang(2);
     });
     scheduleGolden();
   }, delay);
@@ -113,10 +145,16 @@ scheduleGolden();
 // ---------- Main loop ----------
 let last = performance.now();
 let uiAcc = 0;
+let lastChunkBang = 0;
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.25);
   last = now;
+  const before = game.totalDonuts;
   game.tick(dt);
+  // Every 100th donut gained (a gain that crosses a multiple of 100 in one frame)
+  // (throttled to once per 8 s, otherwise high DPS would keep the screen permanently white)
+  if (game.totalDonuts > before && Math.floor(game.totalDonuts / 100) > Math.floor(before / 100)
+      && now - lastChunkBang > 8000) { lastChunkBang = now; bang(1); }
   scene.setDps(game.getDps());
   uiAcc += dt;
   if (uiAcc >= 0.1) {
@@ -133,3 +171,11 @@ window.addEventListener('beforeunload', () => game.save());
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') game.save();
 });
+
+// ---------- Extra FX modules (each isolated: a broken module never breaks the game) ----------
+const fxCtx = { game, scene, ui, sfx, getChaos: () => chaos, bang };
+for (const name of ['title', 'cursor', 'vibrate', 'announcer', 'music', 'flee', 'glitch', 'achievements', 'boss']) {
+  import(`./fx/${name}.js`)
+    .then((m) => m.init?.(fxCtx))
+    .catch((err) => console.warn(`FX-Modul ${name} nicht geladen:`, err));
+}
