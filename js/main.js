@@ -7,7 +7,6 @@ const game = new Game();
 const scene = new DonutScene(document.getElementById('scene'));
 const ui = new UI(game);
 const sfx = new Sfx();
-ui.sfx = sfx; // used by the random chaos explosions in ui.js
 
 // Browsers only allow audio after a user gesture: unlock + start music on first tap anywhere
 document.addEventListener('pointerdown', () => {
@@ -25,11 +24,36 @@ btnMute.addEventListener('click', () => {
 });
 syncMuteButton();
 
+// ---------- Chaos ----------
+// chaos = Σ_i log2(1 + count_i) * (1 + i*0.6) / 12  (grows with every building bought)
+let chaos = 0;
+function computeChaos() {
+  let sum = 0;
+  BUILDINGS.forEach((b, i) => {
+    sum += Math.log2(1 + (game.owned[b.id] || 0)) * (1 + i * 0.6);
+  });
+  return sum / 12;
+}
+function applyChaos() {
+  chaos = computeChaos();
+  scene.setChaos?.(chaos);
+  ui.setChaos(chaos);
+}
+
+// Random extra explosion / boing sounds, more often at higher chaos
+function chaosSfxLoop() {
+  if (Math.random() < Math.min(0.9, 0.2 * (1 + chaos))) sfx.explosion();
+  if (Math.random() < Math.min(0.6, 0.1 * (1 + chaos))) sfx.boing();
+  setTimeout(chaosSfxLoop, 300);
+}
+chaosSfxLoop();
+
 // ---------- Load ----------
 const offline = game.load();
 for (const b of BUILDINGS) {
   scene.setBuildingCount(b.id, game.owned[b.id] || 0);
 }
+applyChaos();
 ui.render();
 if (offline > 0) {
   setTimeout(() => ui.toast(`🌙 Willkommen zurück! Im Schlaf verdient: ${formatNumber(offline)} Donuts`), 800);
@@ -49,6 +73,7 @@ game.on('buy', (id, count) => {
   scene.buyFx(id);
   sfx.buy();
   ui.toast(`🎉 ${b ? b.name : id} gekauft! Jetzt ${count}×`);
+  applyChaos();
 });
 
 game.on('upgrade', (id) => {
@@ -66,6 +91,7 @@ game.on('milestone', (n) => {
 
 document.addEventListener('dc:reset', () => {
   for (const b of BUILDINGS) scene.setBuildingCount(b.id, 0);
+  applyChaos();
 });
 
 // ---------- Golden donut ----------

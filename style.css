@@ -1,4 +1,5 @@
 :root {
+  --q: calc(1 + var(--chaos, 0) * 0.5); /* quake strength multiplier */
   --pink: #ff6ad5;
   --yellow: #ffd166;
   --mint: #06d6a0;
@@ -57,7 +58,7 @@ html, body {
 h2 {
   margin: 0 0 10px;
   font-size: 1.1rem;
-  animation: hueShift 6s linear infinite;
+  animation: hueShift calc(6s / (1 + var(--chaos, 0))) linear infinite;
 }
 
 /* ---------- Buttons ---------- */
@@ -108,8 +109,10 @@ h2 {
   background-clip: text;
   color: transparent;
   filter: drop-shadow(0 4px 0 #fff) drop-shadow(0 6px 10px rgba(0, 0, 0, 0.25));
-  animation: rainbow 5s linear infinite, wobble 2.4s ease-in-out infinite,
-             shakeText 0.25s steps(2) infinite, hueText 3s linear infinite;
+  animation: rainbow calc(5s / (1 + var(--chaos, 0))) linear infinite,
+             wobble calc(2.4s / (1 + var(--chaos, 0) * 2)) ease-in-out infinite,
+             shakeText calc(0.25s / (1 + var(--chaos, 0))) steps(2) infinite,
+             hueText calc(3s / (1 + var(--chaos, 0))) linear infinite;
 }
 #per-sec {
   display: inline-block;
@@ -130,7 +133,8 @@ h2 {
   top: 150px;
   width: 200px;
   animation: slideInLeft 0.9s cubic-bezier(0.2, 1.4, 0.4, 1) both,
-             glow 1.8s ease-in-out 1s infinite;
+             glow 1.8s ease-in-out 1s infinite,
+             panelTilt calc(3s / (1 + var(--chaos, 0))) ease-in-out infinite;
 }
 #stats dl {
   display: grid;
@@ -161,7 +165,8 @@ h2 {
   flex-direction: column;
   overflow: hidden;
   animation: slideInRight 0.9s cubic-bezier(0.2, 1.4, 0.4, 1) both,
-             glow 1.8s ease-in-out 1s infinite;
+             glow 1.8s ease-in-out 1s infinite,
+             panelTilt calc(3s / (1 + var(--chaos, 0))) ease-in-out infinite;
 }
 #shop-head {
   display: flex;
@@ -224,7 +229,7 @@ h2 {
   pointer-events: auto;
   box-shadow: 0 3px 0 rgba(155, 93, 229, 0.18);
   transition: transform 0.15s, filter 0.25s, box-shadow 0.2s;
-  animation: hop 1.2s ease-in-out infinite;
+  animation: hop calc(1.2s / (1 + var(--chaos, 0) * 0.5)) ease-in-out infinite;
 }
 .bld:nth-child(2n) { animation-delay: -0.5s; }
 .bld:nth-child(3n) { animation-delay: -0.9s; }
@@ -276,7 +281,7 @@ h2 {
   position: fixed;
   z-index: 10;
   pointer-events: none;
-  transform: translate(-50%, -100%) translateY(-8px);
+  transform: translateX(-50%);
   max-width: 230px;
   padding: 8px 12px;
   border-radius: 12px;
@@ -404,8 +409,12 @@ h2 {
   to { background-position: 300% 0; }
 }
 @keyframes wobble {
-  0%, 100% { transform: rotate(-2deg) scale(1); }
-  50% { transform: rotate(2deg) scale(1.04); }
+  0%, 100% { transform: rotate(calc(-2deg * (1 + var(--chaos, 0)))) scale(1); }
+  50% { transform: rotate(calc(2deg * (1 + var(--chaos, 0)))) scale(calc(1 + 0.04 * (1 + var(--chaos, 0)))); }
+}
+@keyframes panelTilt {
+  0%, 100% { rotate: calc(var(--chaos, 0) * -0.6deg); }
+  50% { rotate: calc(var(--chaos, 0) * 0.6deg); }
 }
 @keyframes bob {
   0%, 100% { transform: translateY(0); }
@@ -465,8 +474,8 @@ h2 {
   100% { opacity: 0; transform: translate(-50%, -220%) rotate(calc(var(--rot) * 2)) scale(1); }
 }
 @keyframes tipBounce {
-  from { transform: translate(-50%, -100%) translateY(4px) scale(0.8); }
-  to { transform: translate(-50%, -100%) translateY(-8px) scale(1); }
+  from { transform: translateX(-50%) scale(0.8); }
+  to { transform: translateX(-50%) scale(1); }
 }
 @keyframes ticker {
   to { transform: translateX(-50%); }
@@ -479,12 +488,12 @@ h2 {
 }
 @keyframes shakeText {
   0% { translate: 0 0; }
-  50% { translate: -4px 3px; }
-  100% { translate: 4px -3px; }
+  50% { translate: calc(-4px * (1 + var(--chaos, 0))) calc(3px * (1 + var(--chaos, 0))); }
+  100% { translate: calc(4px * (1 + var(--chaos, 0))) calc(-3px * (1 + var(--chaos, 0))); }
 }
 @keyframes hop {
   0%, 100% { translate: 0 0; }
-  50% { translate: 0 -10px; }
+  50% { translate: 0 calc(-10px * (1 + var(--chaos, 0))); }
 }
 @keyframes spinX {
   to { rotate: 360deg; }
@@ -499,11 +508,24 @@ h2 {
 }
 @keyframes quake {
   0%, 100% { transform: translate(0, 0); }
-  10% { transform: translate(-8px, 5px) rotate(-0.6deg); }
-  30% { transform: translate(8px, -6px) rotate(0.6deg); }
-  50% { transform: translate(-6px, -4px); }
-  70% { transform: translate(6px, 6px) rotate(-0.4deg); }
-  90% { transform: translate(-4px, 3px); }
+  10% { transform: translate(calc(-8px * var(--q)), calc(5px * var(--q))) rotate(calc(-0.6deg * var(--q))); }
+  30% { transform: translate(calc(8px * var(--q)), calc(-6px * var(--q))) rotate(calc(0.6deg * var(--q))); }
+  50% { transform: translate(calc(-6px * var(--q)), calc(-4px * var(--q))); }
+  70% { transform: translate(calc(6px * var(--q)), calc(6px * var(--q))) rotate(calc(-0.4deg * var(--q))); }
+  90% { transform: translate(calc(-4px * var(--q)), calc(3px * var(--q))); }
+}
+@keyframes uiSpin {
+  0% { rotate: 0deg; filter: none; }
+  30% { rotate: calc(var(--chaos, 0) * 1.5deg); filter: hue-rotate(120deg) saturate(1.6); }
+  60% { rotate: calc(var(--chaos, 0) * -1.2deg); filter: hue-rotate(240deg); }
+  100% { rotate: 0deg; filter: hue-rotate(360deg); }
+}
+@keyframes chaosSlam {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(4) rotate(-12deg); }
+  15% { opacity: 1; transform: translate(-50%, -50%) scale(0.9) rotate(3deg); }
+  25% { transform: translate(-50%, -50%) scale(1.05) rotate(-2deg); }
+  75% { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.3) rotate(0); }
 }
 @keyframes partFly {
   0% { opacity: 1; transform: translate(0, 0) rotate(0deg) scale(0.3); }
@@ -517,6 +539,22 @@ h2 {
   pointer-events: none;
   z-index: 5;
 }
+#ui-root.uiSpin { animation: uiSpin 1.2s ease-in-out 1; }
+
+.chaos-slam {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  white-space: nowrap;
+  font-size: clamp(2.6rem, 11vw, 7rem);
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 6px 0 var(--purple), 0 0 30px var(--pink);
+  pointer-events: none;
+  z-index: 6;
+  animation: chaosSlam 1.4s cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+
 #flash.go { animation: flashAnim 0.6s ease-out; }
 
 #particle-layer {
@@ -533,7 +571,7 @@ h2 {
   animation: partFly 1.6s cubic-bezier(0.1, 0.7, 0.3, 1) forwards;
 }
 
-body.quake { animation: quake 0.6s steps(6) 1; }
+body.quake { animation: quake calc(0.6s / (1 + var(--chaos, 0) * 0.5)) steps(6) 1; }
 
 /* Utility classes toggled from JS */
 .pop { animation: popIn 0.5s cubic-bezier(0.3, 1.8, 0.5, 1); }

@@ -33,6 +33,8 @@ const spring = (s, k, c, dt) => {
 };
 const WHITE = new THREE.Color(0xffffff);
 const tmpColor = new THREE.Color();
+const _v = new THREE.Vector3(); // scratch
+const UP = new THREE.Vector3(0, 1, 0);
 
 // ---------- pooled instanced particles (one draw call per pool) ----------
 class Pool {
@@ -53,7 +55,7 @@ class Pool {
       this.parts.push({
         a: false, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
         rx: 0, ry: 0, rz: 0, sx: 0, sy: 0, sz: 0,
-        life: 0, max: 1, size: 1, grav: 0, drag: 0,
+        life: 0, max: 1, size: 1, grav: 0, drag: 0, grow: 0,
       });
       this.mesh.setMatrixAt(i, this.dummy.matrix);
       this.mesh.setColorAt(i, WHITE);
@@ -82,6 +84,7 @@ class Pool {
     p.size = o.size ?? 1;
     p.grav = o.grav ?? 6;
     p.drag = o.drag ?? 0.8;
+    p.grow = o.grow ?? 0; // size growth over life (smoke puffs)
     this.mesh.setColorAt(idx, tmpColor.set(o.color ?? pick(PALETTE)));
     this.dirty = true;
   }
@@ -106,7 +109,7 @@ class Pool {
         const k = Math.min(1, p.life / (p.max * 0.35));
         d.position.set(p.x, p.y, p.z);
         d.rotation.set(p.rx, p.ry, p.rz);
-        d.scale.setScalar(p.size * k);
+        d.scale.setScalar(p.size * k * (1 + p.grow * (1 - p.life / p.max)));
       }
       d.updateMatrix();
       this.mesh.setMatrixAt(i, d.matrix);
@@ -158,6 +161,8 @@ export class DonutScene {
       glow: new THREE.SphereGeometry(2.1, 16, 12),
       hit: new THREE.SphereGeometry(1.5, 16, 12),
       sky: new THREE.SphereGeometry(40, 24, 16),
+      fingerBody: new THREE.CylinderGeometry(0.05, 0.05, 0.34, 8),
+      fingerTip: new THREE.ConeGeometry(0.06, 0.14, 8),
     };
 
     // shared materials
@@ -168,6 +173,7 @@ export class DonutScene {
       glow: new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0.16, depthWrite: false }),
       hit: new THREE.MeshBasicMaterial({ visible: false }),
       ring: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x444444, roughness: 0.3 }),
+      finger: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 }),
       palette: PALETTE.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.4 })),
     };
     this.buildingMats = new Map();
@@ -251,6 +257,47 @@ export class DonutScene {
     this.minis = new Pool(this.scene, this.geo.mini, 400);
     this.sprinkles = new Pool(this.scene, this.geo.sprinkle, 400);
     this.confetti = new Pool(this.scene, this.geo.confetti, 900);
+    this.bubbles = new Pool(this.scene, this.geo.sphere, 140); // fryer oil
+    this.smoke = new Pool(this.scene, this.geo.sphere, 120); // fryer / factory steam
+
+    // building fx: pooled meshes (busy flag = in use)
+    this.fxAcc = Object.fromEntries(BUILDING_ORDER.map((id) => [id, 0]));
+    this.fingers = Array.from({ length: 10 }, () => {
+      const g = new THREE.Group();
+      const body = new THREE.Mesh(this.geo.fingerBody, this.mat.finger);
+      body.position.y = 0.17;
+      const tip = new THREE.Mesh(this.geo.fingerTip, this.mat.finger);
+      tip.position.y = 0.41;
+      g.add(body, tip);
+      g.visible = false;
+      this.scene.add(g);
+      return { g, d: new THREE.Vector3(), busy: false };
+    });
+    this.neons = Array.from({ length: 14 }, (_, i) => {
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+      const m = new THREE.Mesh(i % 2 ? this.geo.box : this.geo.upgradeRing, mat);
+      m.visible = false;
+      this.scene.add(m);
+      return { m, mat, busy: false };
+    });
+    this.meteors = Array.from({ length: 4 }, () => {
+      const m = new THREE.Mesh(this.geo.sphere, new THREE.MeshBasicMaterial({ color: 0xffa040 }));
+      m.scale.setScalar(0.45);
+      m.visible = false;
+      this.scene.add(m);
+      return { m, busy: false };
+    });
+    // portal vortex behind the donut
+    this.vortex = new THREE.Group();
+    this.vortex.position.set(0, 0, -5);
+    this.vortex.visible = false;
+    const vortexA = new THREE.Mesh(this.geo.upgradeRing, new THREE.MeshBasicMaterial({ color: 0x00f0c8, transparent: true, opacity: 0.7, depthWrite: false, blending: THREE.AdditiveBlending }));
+    vortexA.scale.setScalar(2.4);
+    this.vortexB = new THREE.Mesh(this.geo.upgradeRing, new THREE.MeshBasicMaterial({ color: 0xb36bff, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.vortexB.scale.setScalar(1.5);
+    this.vortexB.rotation.x = 1.1;
+    this.vortex.add(vortexA, this.vortexB);
+    this.scene.add(this.vortex);
 
     // state
     this.time = 0;
@@ -273,6 +320,12 @@ export class DonutScene {
     this.tweens = [];
     this.clickCbs = [];
     this.golden = null;
+    this.chaos = 0; // smoothed escalation level (see setChaos)
+    this.chaosTarget = 0;
+    this.hopT = 0;
+    this.hueT = 0;
+    this.strobeT = 0;
+    this.portalAmt = 0;
 
     // input (pointerdown covers mouse + touch)
     this.onPointerDown = (e) => {
@@ -304,6 +357,12 @@ export class DonutScene {
 
   onDonutClick(cb) {
     this.clickCbs.push(cb);
+  }
+
+  // escalation level from buildings (~0 at start, ~1 mid game, 3+ late). Smoothed in update().
+  setChaos(level) {
+    const v = Number(level);
+    this.chaosTarget = Number.isFinite(v) ? clamp(v, 0, 6) : 0;
   }
 
   clickFx(clientX, clientY) {
@@ -433,17 +492,171 @@ export class DonutScene {
   }
 
   // random big explosion somewhere in the scene (idle chaos)
-  explode() {
+  // s scales particle counts, ring size and shake (chaos makes explosions bigger)
+  explode(s = 1) {
     const z = rand(-6, 2);
     const hh = this.halfH(z) * 0.9, hw = hh * this.camera.aspect;
     const x = rand(-hw, hw), y = rand(-hh, hh);
     const col = pick(PALETTE);
-    this.burst(this.confetti, x, y, z, 70, 6, { life: 1.6, grav: 4, size: 1.1, color: col, spin: 10 });
-    this.burst(this.minis, x, y, z, 20, 5, { life: 1.3, grav: 5, size: 1.1, spin: 8 });
-    this.shockwave(x, y, z, col, 0.6, rand(2, 4));
+    this.burst(this.confetti, x, y, z, Math.round(50 * s), 6, { life: 1.6, grav: 4, size: 1.1, color: col, spin: 10 });
+    this.burst(this.minis, x, y, z, Math.round(20 * s), 5, { life: 1.3, grav: 5, size: 1.1, spin: 8 });
+    this.shockwave(x, y, z, col, 0.6, rand(2, 4) * s);
     this.flash = Math.max(this.flash, 0.3);
     this.boomLight = Math.max(this.boomLight, 0.6);
-    this.addShake(0.08);
+    this.addShake(0.08 * s);
+  }
+
+  // ----- building effects (each continuous; rate scales with log2(1 + count)) -----
+
+  fxSlot(list) {
+    for (const s of list) if (!s.busy) { s.busy = true; return s; }
+    return null;
+  }
+
+  // returns how many events of this building fire this frame (capped at 6)
+  fxEvents(id, dt, rate) {
+    const cnt = this.rings.get(id).count;
+    if (!cnt) { this.fxAcc[id] = 0; return 0; }
+    let a = this.fxAcc[id] + dt * rate * Math.log2(1 + cnt);
+    let n = 0;
+    while (a >= 1 && n < 6) { a -= 1; n++; }
+    this.fxAcc[id] = Math.min(a, 1);
+    return n;
+  }
+
+  updateBuildingFx(dt, c) {
+    const m = 1 + 0.3 * c;
+    const portalN = this.rings.get('portal').count;
+    this.portalAmt += (Math.min(1, portalN / 4) - this.portalAmt) * Math.min(1, dt * 2);
+    this.vortex.visible = portalN > 0;
+    this.vortex.rotation.z += dt * (1 + 2 * this.portalAmt);
+    this.vortexB.rotation.y += dt * (1.5 + 2 * this.portalAmt);
+    this.vortex.scale.setScalar(1 + 0.15 * Math.sin(this.time * 2));
+
+    for (let k = this.fxEvents('cursor', dt, 2 * m); k > 0; k--) this.fxPoke();
+    for (let k = this.fxEvents('baker', dt, 1.5 * m); k > 0; k--) this.fxThrow();
+    for (let k = this.fxEvents('fryer', dt, 2 * m); k > 0; k--) this.fxBubble();
+    for (let k = this.fxEvents('shop', dt, 1.5 * m); k > 0; k--) this.fxNeon();
+    for (let k = this.fxEvents('factory', dt, 4 * m); k > 0; k--) this.fxConveyor();
+    for (let k = this.fxEvents('mine', dt, 0.8 * m); k > 0; k--) this.fxGeyser();
+    for (let k = this.fxEvents('portal', dt, 1.5 * m); k > 0; k--) this.fxSpit();
+    for (let k = this.fxEvents('planet', dt, 0.35 * m); k > 0; k--) this.fxMeteor();
+  }
+
+  // cursor: white fingers poke the donut from a random direction, squish + sprinkle puff
+  fxPoke() {
+    const s = this.fxSlot(this.fingers);
+    if (!s) return;
+    const d = s.d.set(rand(-1, 1), rand(-1, 1), rand(-0.5, 0.5)).normalize();
+    s.g.quaternion.setFromUnitVectors(UP, _v.copy(d).negate()); // tip points at the donut
+    s.g.visible = true;
+    let hit = false;
+    this.tween(0.45, (p) => {
+      const k = p < 0.35 ? easeOutCubic(p / 0.35) : p < 0.6 ? 1 : 1 - easeOutCubic((p - 0.6) / 0.4);
+      s.g.position.copy(d).multiplyScalar(1.7 + 1.8 * (1 - k));
+      if (!hit && p >= 0.35) {
+        hit = true;
+        this.pop.v += 4;
+        this.burst(this.sprinkles, d.x * 1.2, d.y * 1.2, d.z * 1.2, 6, 4, { life: 0.9, grav: 4, drag: 0.5, size: 0.9, spin: 8 });
+      }
+    }, () => { s.g.visible = false; s.busy = false; });
+  }
+
+  // baker: mini donuts thrown in arcs from the orbit toward the camera
+  fxThrow() {
+    const items = this.rings.get('baker').items;
+    if (!items.length) return;
+    pick(items).getWorldPosition(_v);
+    this.minis.spawn(_v.x, _v.y, _v.z, rand(-1.5, 1.5), rand(3, 6), rand(2.5, 4.5),
+      { life: 1.8, grav: 7, drag: 0.1, spin: 10, size: rand(1, 1.4) });
+  }
+
+  // fryer: oil bubbles rise from the bottom, grey smoke puffs grow and fade
+  fxBubble() {
+    const z = rand(-3, 0.5), hh = this.halfH(z), hw = hh * this.camera.aspect;
+    for (let i = 0; i < 2; i++) {
+      this.bubbles.spawn(rand(-hw, hw), -hh, z, rand(-0.3, 0.3), rand(1.5, 3), 0,
+        { life: rand(1.6, 2.6), grav: -0.6, drag: 0.1, size: rand(0.5, 1.1), color: pick([0xffb347, 0xffd27a, 0xff9f1c]), spin: 0 });
+    }
+    this.smoke.spawn(rand(-hw, hw) * 0.8, -hh * 0.9, z, rand(-0.2, 0.2), rand(0.5, 1), 0,
+      { life: 3, grav: -0.2, drag: 0.4, size: rand(1.2, 2), grow: 2, color: 0x8a8a96, spin: 0.5 });
+  }
+
+  // shop: neon rings and boxes blink around the scene
+  fxNeon() {
+    const s = this.fxSlot(this.neons);
+    if (!s) return;
+    const hh = this.halfH(-4), hw = hh * this.camera.aspect;
+    s.m.position.set(rand(-hw, hw) * 0.9, rand(-hh, hh) * 0.9, rand(-6, -2));
+    s.m.scale.setScalar(rand(0.8, 1.6));
+    s.m.rotation.set(rand(0, TAU), rand(0, TAU), rand(0, TAU));
+    s.mat.color.set(pick(PALETTE));
+    s.m.visible = true;
+    this.tween(0.7, (p) => {
+      s.mat.opacity = (Math.sin(p * Math.PI * 6) > 0 ? 1 : 0.1) * (1 - p);
+    }, () => { s.m.visible = false; s.busy = false; });
+  }
+
+  // factory: a conveyor of mini donuts crosses the screen, steam puffs rise
+  fxConveyor() {
+    const hh = this.halfH(-2), hw = hh * this.camera.aspect;
+    const y = -hh * 0.55 + rand(-0.1, 0.1);
+    const z = rand(-2, -0.5);
+    this.minis.spawn(-hw - 1, y, z, rand(4, 6), 0, 0,
+      { life: (2 * hw + 2) / 4, grav: 0, drag: 0, spin: 4, size: rand(0.7, 1) });
+    if (Math.random() < 0.3) {
+      this.smoke.spawn(rand(-hw, hw), -hh * 0.2, z, rand(-0.2, 0.2), rand(0.8, 1.4), 0,
+        { life: 2.2, grav: -0.3, drag: 0.6, size: rand(0.8, 1.2), grow: 2.5, color: 0xf2f6ff, spin: 1 });
+    }
+  }
+
+  // mine: pink / chocolate glaze geysers erupt from below
+  fxGeyser() {
+    const z = rand(-3, 0.5), hh = this.halfH(z), hw = hh * this.camera.aspect;
+    const x = rand(-hw * 0.9, hw * 0.9);
+    for (let i = 0; i < 10; i++) {
+      this.confetti.spawn(x + rand(-0.2, 0.2), -hh, z, rand(-1.5, 1.5), rand(6, 10), rand(-0.5, 0.5),
+        { life: rand(1.2, 1.8), grav: 9, drag: 0.1, size: rand(0.8, 1.3), color: Math.random() < 0.6 ? 0xff5fa2 : 0x5a2d14, spin: 8 });
+    }
+  }
+
+  // portal: the vortex spits random objects toward the camera
+  fxSpit() {
+    const a = rand(0, TAU), dx = Math.cos(a), dy = Math.sin(a);
+    const pool = Math.random() < 0.5 ? this.minis : this.confetti;
+    for (let i = 0; i < 3; i++) {
+      const v = rand(3, 6);
+      pool.spawn(dx * 2.2, dy * 2.2, -5, dx * v, dy * v, rand(4, 7),
+        { life: 1.8, grav: 3, drag: 0.3, size: rand(0.8, 1.3), spin: 10, color: pick(PALETTE) });
+    }
+  }
+
+  // planet: a glowing meteor streaks in with a spark trail and crashes into a big explosion
+  fxMeteor() {
+    const s = this.fxSlot(this.meteors);
+    if (!s) return;
+    const hh = this.halfH(-2), hw = hh * this.camera.aspect;
+    const tx = rand(-hw, hw) * 0.6, ty = rand(-hh, hh) * 0.6, tz = rand(-3, 0);
+    const sx = tx + rand(-3, 3), sy = hh + 3, sz = tz - rand(2, 5);
+    s.m.visible = true;
+    this.tween(rand(0.9, 1.3), (p) => {
+      const e = p * p;
+      const x = sx + (tx - sx) * e, y = sy + (ty - sy) * e, z = sz + (tz - sz) * e;
+      s.m.position.set(x, y, z);
+      if (p < 0.97) {
+        this.sprinkles.spawn(x, y, z, rand(-0.3, 0.3), rand(-0.3, 0.3), 0,
+          { life: 0.6, grav: 0, drag: 2, size: 0.7, spin: 2, color: 0xffc070 });
+      }
+    }, () => {
+      s.m.visible = false;
+      s.busy = false;
+      this.burst(this.confetti, tx, ty, tz, 150, 9, { life: 2, grav: 4, size: 1.3, spin: 10 });
+      this.burst(this.minis, tx, ty, tz, 60, 7, { life: 1.6, grav: 5, size: 1.3 });
+      this.shockwave(tx, ty, tz, 0xffa040, 0.9, 7);
+      this.addShake(0.7);
+      this.flash = Math.max(this.flash, 0.6);
+      this.boomLight = Math.max(this.boomLight, 1);
+    });
   }
 
   // expanding colored ring
@@ -528,6 +741,10 @@ export class DonutScene {
   update(dt) {
     const t = (this.time += dt);
 
+    // chaos: smoothed toward the setChaos target so escalation ramps
+    this.chaos += (this.chaosTarget - this.chaos) * Math.min(1, dt * 0.8);
+    const c = this.chaos;
+
     // springs
     spring(this.pop, 160, 8, dt);
     spring(this.bounce, 110, 7, dt);
@@ -536,9 +753,10 @@ export class DonutScene {
 
     // center donut: constant hopping, spinning, glaze color cycling
     this.spinVel *= Math.exp(-2.5 * dt);
-    this.spinAng += (1.2 + this.spinVel) * dt;
-    const hop = Math.abs(Math.sin(t * 5.5));
-    this.holder.position.y = this.bounce.x * 0.6 + hop * 0.9;
+    this.spinAng += (1.2 + this.spinVel) * dt * (1 + 0.6 * c);
+    this.hopT += dt * (5.5 + 2 * c);
+    const hop = Math.abs(Math.sin(this.hopT));
+    this.holder.position.y = this.bounce.x * 0.6 + hop * 0.9 * (1 + 0.35 * c);
     this.holder.rotation.set(
       this.tiltX.x + Math.sin(t * 1.3) * 0.2,
       this.spinAng + this.tiltY.x + Math.sin(t * 0.9) * 0.5,
@@ -553,7 +771,7 @@ export class DonutScene {
 
     // orbiting buildings: hop and spin
     for (const r of this.rings.values()) {
-      r.spin.rotation.y += r.speed * dt * (1 + this.intensity * 2);
+      r.spin.rotation.y += r.speed * dt * (1 + this.intensity * 2 + 0.5 * c);
       for (const o of r.items) {
         o.rotation.y += dt * 2.2;
         o.rotation.x += dt * 4;
@@ -570,17 +788,21 @@ export class DonutScene {
       f.m.rotation.y += dt * f.sp * 0.7;
     }
 
-    // random explosions every 0.3-1 s
+    // idle explosions: ~1/s at chaos 0 up to ~10/s, and bigger as chaos grows
+    const boomRate = clamp(1 + 3 * c, 1, 10);
+    const boomSize = clamp(1 + 0.5 * c, 1, 2.5);
     this.boomTimer -= dt;
-    if (this.boomTimer <= 0) {
-      this.explode();
-      this.boomTimer = rand(0.3, 1);
+    for (let n = 0; this.boomTimer <= 0 && n < 4; n++) {
+      this.explode(boomSize);
+      this.boomTimer += rand(0.7, 1.3) / boomRate;
     }
+    if (this.boomTimer < -1) this.boomTimer = 0;
 
-    // continuous emission: sprinkles off the donut, mini donuts across the screen
+    // continuous emission: sprinkles off the donut (rate rises with chaos), mini donuts across the screen
     this.emitAcc += dt;
-    while (this.emitAcc >= 1 / 40) {
-      this.emitAcc -= 1 / 40;
+    const emitStep = 1 / clamp(40 * (1 + 1.5 * c), 40, 120);
+    for (let guard = 0; this.emitAcc >= emitStep && guard < 8; guard++) {
+      this.emitAcc -= emitStep;
       const a = rand(0, TAU);
       const cx = Math.cos(a), sy = Math.sin(a), v = rand(2, 4);
       this.sprinkles.spawn(cx * 1.1, sy * 1.1, rand(-0.2, 0.4), cx * v, sy * v, rand(0.5, 2),
@@ -591,6 +813,8 @@ export class DonutScene {
           { life: 2.5, grav: 1, drag: 0.2, spin: 8, size: rand(0.8, 1.3) });
       }
     }
+
+    this.updateBuildingFx(dt, c);
 
     // rain of donuts (rate follows dps, log scale)
     this.rainAcc += this.rainRate * dt;
@@ -625,16 +849,18 @@ export class DonutScene {
 
     // background: fast color cycling, strobe flashes, lights
     this.flash *= Math.exp(-dt * 3);
-    const strobe = Math.pow(Math.max(0, Math.sin(t * 14)), 8);
+    this.strobeT = (this.strobeT + dt * (14 + 10 * c)) % TAU;
+    const strobe = Math.pow(Math.max(0, Math.sin(this.strobeT)), 8);
     this.boomLight *= Math.exp(-dt * 4);
     this.skyU.uFlash.value = Math.max(this.flash, strobe * 0.35);
-    const hue = (t * 0.12 + this.intensity * 0.1) % 1;
+    this.hueT = (this.hueT + dt * (0.12 + 0.2 * c)) % 1;
+    const hue = (this.hueT + this.intensity * 0.1) % 1;
     this.skyU.uTop.value.setHSL(hue, 0.85, 0.5);
     this.skyU.uBottom.value.setHSL((hue + 0.45) % 1, 1, 0.68);
     this.lightA.color.setHSL((t * 0.4) % 1, 1, 0.6);
     this.lightB.color.setHSL((t * 0.4 + 0.5) % 1, 1, 0.6);
     this.lightA.intensity = 60 + 300 * strobe + 200 * this.boomLight;
-    this.lightB.intensity = 60 + 300 * Math.pow(Math.max(0, Math.sin(t * 14 + Math.PI)), 8) + 200 * this.boomLight;
+    this.lightB.intensity = 60 + 300 * Math.pow(Math.max(0, Math.sin(this.strobeT + Math.PI)), 8) + 200 * this.boomLight;
     this.ambient.intensity = 0.7 + 0.5 * strobe;
     this.lightA.position.set(-4 + Math.sin(t) * 2, 2.5 + Math.cos(t * 0.7) * 1.5, 5);
     this.lightB.position.set(4 + Math.cos(t * 0.8) * 2, -2.5 + Math.sin(t * 0.6) * 1.5, 4);
@@ -644,6 +870,8 @@ export class DonutScene {
     this.minis.update(dt);
     this.sprinkles.update(dt);
     this.confetti.update(dt);
+    this.bubbles.update(dt);
+    this.smoke.update(dt);
 
     // tweens (snapshot so callbacks may add new ones)
     const list = this.tweens;
@@ -660,13 +888,16 @@ export class DonutScene {
     // camera: shake, zoom pulses, roll wobble
     this.shake *= Math.exp(-dt * 4);
     this.zoomPulse *= Math.exp(-dt * 3);
-    const zoom = CAM_Z + Math.sin(t * 1.3) * 0.8 - this.zoomPulse + Math.abs(Math.sin(t * 2.5)) * 0.3;
+    const amp = 1 + 0.25 * c; // chaos scales shake / wobble / zoom pulse amplitude
+    const sh = this.shake * amp;
+    const zoom = CAM_Z + Math.sin(t * 1.3) * 0.8 * amp - this.zoomPulse * amp + Math.abs(Math.sin(t * 2.5)) * 0.3;
     this.camera.position.set(
-      Math.sin(t * 41) * this.shake + Math.sin(t * 2.3) * 0.3,
-      Math.cos(t * 37) * this.shake + Math.cos(t * 1.9) * 0.25,
+      Math.sin(t * 41) * sh + Math.sin(t * 2.3) * 0.3 * amp,
+      Math.cos(t * 37) * sh + Math.cos(t * 1.9) * 0.25 * amp,
       zoom
     );
-    this.camera.up.set(Math.sin(t * 1.9) * 0.15 + Math.sin(t * 23) * this.shake * 0.02, 1, 0).normalize();
+    const portalRoll = this.portalAmt * Math.sin(t * 0.4) * 0.35; // portal: scene gently rolls
+    this.camera.up.set(Math.sin(t * 1.9) * 0.15 * amp + portalRoll + Math.sin(t * 23) * sh * 0.02, 1, 0).normalize();
     this.camera.lookAt(0, 0, 0);
   }
 }
