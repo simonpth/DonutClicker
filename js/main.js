@@ -174,7 +174,8 @@ document.addEventListener('visibilitychange', () => {
 
 // ---------- Extra FX modules (each isolated: a broken module never breaks the game) ----------
 const fxCtx = { game, scene, ui, sfx, getChaos: () => chaos, bang };
-for (const name of ['title', 'cursor', 'vibrate', 'announcer', 'music', 'flee', 'glitch', 'achievements', 'boss']) {
+const isBot = /bot|crawl|spider|slurp|lighthouse|headless/i.test(navigator.userAgent);
+for (const name of [...(isBot ? [] : ['title']), 'cursor', 'vibrate', 'announcer', 'music', 'flee', 'glitch', 'achievements', 'boss']) {
   import(`./fx/${name}.js`)
     .then((m) => m.init?.(fxCtx))
     .catch((err) => console.warn(`FX-Modul ${name} nicht geladen:`, err));

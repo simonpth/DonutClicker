@@ -3,14 +3,64 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>Donut Clicker</title>
-  <meta name="description" content="Klick auf den Donut und werde zum Donut-Imperium!">
+  <title>Donut Clicker – kostenloses 3D-Klickspiel im Browser</title>
+  <meta name="description" content="Donut Clicker: Das kostenlose 3D-Idle-Klickspiel im Browser. Klick auf den Donut, kauf Bäcker, Fabriken und Donut-Planeten und erlebe, wie das Chaos mit jedem Gebäude eskaliert. Ohne Anmeldung, auch auf dem Handy.">
+  <meta name="robots" content="index, follow">
+  <meta name="theme-color" content="#ff7eb6">
+  <link rel="canonical" href="https://simonpth.github.io/DonutClicker/">
+  <link rel="icon" type="image/png" sizes="48x48" href="favicon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+
+  <!-- Open Graph / Social previews -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Donut Clicker">
+  <meta property="og:locale" content="de_DE">
+  <meta property="og:url" content="https://simonpth.github.io/DonutClicker/">
+  <meta property="og:title" content="Donut Clicker – 3D-Klickspiel mit viel zu viel Chaos">
+  <meta property="og:description" content="Klick auf den Donut, bau dein Donut-Imperium und überlebe das eskalierende Chaos. Kostenlos im Browser spielen.">
+  <meta property="og:image" content="https://simonpth.github.io/DonutClicker/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Donut Clicker: ein rosa glasierter Donut mit bunten Streuseln">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Donut Clicker – 3D-Klickspiel mit viel zu viel Chaos">
+  <meta name="twitter:description" content="Klick auf den Donut, bau dein Donut-Imperium und überlebe das eskalierende Chaos.">
+  <meta name="twitter:image" content="https://simonpth.github.io/DonutClicker/og-image.png">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Donut Clicker",
+    "url": "https://simonpth.github.io/DonutClicker/",
+    "image": "https://simonpth.github.io/DonutClicker/og-image.png",
+    "description": "Kostenloses 3D-Idle-Klickspiel im Browser: Klick auf den Donut, kauf Gebäude und erlebe, wie das Chaos mit jedem Gebäude eskaliert.",
+    "inLanguage": "de",
+    "genre": ["Idle-Spiel", "Klickspiel", "Casual"],
+    "gamePlatform": ["Webbrowser", "Desktop", "Smartphone"],
+    "applicationCategory": "Game",
+    "operatingSystem": "Any",
+    "isAccessibleForFree": true,
+    "license": "https://opensource.org/licenses/MIT",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" }
+  }
+  </script>
   <link rel="stylesheet" href="style.css">
   <script type="importmap">
   { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
   </script>
 </head>
 <body>
+  <!-- Crawlable description (screen-reader visible, visually hidden) -->
+  <section class="sr-only">
+    <h1>Donut Clicker – kostenloses 3D-Klickspiel</h1>
+    <p>Donut Clicker ist ein kostenloses Idle- und Klickspiel im Browser mit 3D-Grafik. Klick auf den riesigen Donut, um Donuts zu sammeln, und investiere sie in Finger, Bäcker, Fritteusen, Donut-Läden, Fabriken, Glasur-Minen, Donut-Portale und Donut-Planeten. Mit jedem Gebäude eskaliert das Chaos: Explosionen, Lichteffekte, Bosskämpfe, Erfolge und eine immer wildere Musik. Der Spielstand wird automatisch im Browser gespeichert. Keine Anmeldung nötig, läuft auf Desktop und Smartphone.</p>
+  </section>
+  <noscript>
+    <p style="padding:2rem;font:1.2rem sans-serif">Donut Clicker ist ein 3D-Klickspiel und braucht JavaScript. Bitte aktiviere JavaScript, um zu spielen.</p>
+  </noscript>
   <div id="scene"></div>
 
   <div id="ui-root">
