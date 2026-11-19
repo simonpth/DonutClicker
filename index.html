@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Donut Clicker</title>
+  <meta name="description" content="Klick auf den Donut und werde zum Donut-Imperium!">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <div id="scene"></div>
+
+  <div id="ui-root">
+    <header id="top">
+      <div id="counter">0</div>
+      <div id="per-sec">0 pro Sekunde</div>
+    </header>
+
+    <section id="stats" class="panel">
+      <h2>📊 Statistik</h2>
+      <dl>
+        <dt>Klicks</dt><dd id="stat-clicks">0</dd>
+        <dt>Gesamt</dt><dd id="stat-total">0</dd>
+        <dt>Klickkraft</dt><dd id="stat-power">1</dd>
+      </dl>
+      <button id="btn-mute" class="btn" type="button">🔊 Ton an</button>
+      <button id="btn-save" class="btn">💾 Speichern</button>
+      <button id="btn-reset" class="btn danger">💣 Zurücksetzen</button>
+    </section>
+
+    <aside id="shop" class="panel">
+      <div id="shop-head">
+        <h2>🛒 Donut-Shop</h2>
+        <button id="shop-toggle" class="btn" type="button">🛒 Shop</button>
+      </div>
+      <div id="upgrades"></div>
+      <ul id="buildings"></ul>
+    </aside>
+
+    <div id="flash"></div>
+    <div id="particle-layer"></div>
+    <div id="float-layer"></div>
+    <div id="toast-layer"></div>
+    <div id="ticker"><div id="ticker-track"></div></div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
