@@ -156,19 +156,19 @@ export class Sfx {
     this._noise({ t, dur: 0.6, vol: 1.0, filter: 'lowpass', f0: 6000, f1: 300, q: 0.8 });
     this._tone({ type: 'sine', f0: 120, f1: 22, t, dur: 1.8, vol: 0.95 });
     this._tone({ type: 'triangle', f0: 70, f1: 18, t: t + 0.02, dur: 1.4, vol: 0.6 });
-    this._noise({ t: t + 0.05, dur: 3.0, vol: 0.7, filter: 'lowpass', f0: 900, f1: 60, q: 1.2, rate: 0.5 });
+    this._noise({ t: t + 0.05, dur: 1.4, vol: 0.7, filter: 'lowpass', f0: 900, f1: 60, q: 1.2, rate: 0.5 });
     // Second, delayed rumble "echo" bouncing off the walls
-    this._noise({ t: t + 0.35, dur: 1.6, vol: 0.35, filter: 'lowpass', f0: 500, f1: 50, q: 1 });
-    // Tinnitus: two slightly detuned sines around 4.9 kHz, fading over 6 s
+    this._noise({ t: t + 0.3, dur: 0.9, vol: 0.35, filter: 'lowpass', f0: 500, f1: 50, q: 1 });
+    // Tinnitus: two slightly detuned sines around 4.9 kHz, fading over ~2 s
     const ring = t + 0.1;
-    this._tone({ type: 'sine', f0: 4900, t: ring, dur: 6, vol: 0.08 });
-    this._tone({ type: 'sine', f0: 4900 * 1.012, t: ring, dur: 6, vol: 0.06 });
-    // Muffle the music: lowpass drops to 250 Hz and only slowly opens again over 6 s
+    this._tone({ type: 'sine', f0: 4900, t: ring, dur: 1.8, vol: 0.08 });
+    this._tone({ type: 'sine', f0: 4900 * 1.012, t: ring, dur: 1.8, vol: 0.06 });
+    // Muffle the music: lowpass drops to 250 Hz and opens again over ~1.8 s
     const m = this.muffle.frequency;
     m.cancelScheduledValues(t);
     m.setValueAtTime(250, t);
-    m.setValueAtTime(250, t + 1.5);
-    m.exponentialRampToValueAtTime(20000, t + 6);
+    m.setValueAtTime(250, t + 0.3);
+    m.exponentialRampToValueAtTime(20000, t + 1.8);
   }
 
   // Happy rising arpeggio.

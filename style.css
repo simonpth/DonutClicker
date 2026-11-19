@@ -558,28 +558,44 @@ h2 {
 #flash.go { animation: flashAnim 0.6s ease-out; }
 
 /* ---------- Flash-Bangs ---------- */
+/* Overexposure glow: a coloured, hue-cycling light burst blended over the scene (not a white wall) */
 #bang-flash {
   position: fixed;
-  inset: 0;
-  background: #fff;
+  inset: -10%;
+  background:
+    radial-gradient(circle at var(--bx, 50%) var(--by, 45%), #fff 0%, #fff6 12%, transparent 45%),
+    conic-gradient(from var(--ba, 0deg) at var(--bx, 50%) var(--by, 45%),
+      #ff2d95, #ffe600, #00f0ff, #7cff00, #ff6a00, #b44dff, #ff2d95);
+  mix-blend-mode: color-dodge;
   opacity: 0;
   pointer-events: none;
   z-index: 9000;
 }
-#bang-flash.go { animation: bangFade var(--bang-dur, 5s) cubic-bezier(0.6, 0, 0.9, 1) forwards; }
-@keyframes bangFade {
-  0%, 20% { opacity: 1; }
-  100% { opacity: 0; }
+#bang-flash.go { animation: bangGlow var(--bang-dur, 1.4s) ease-out forwards; }
+@keyframes bangGlow {
+  0%   { opacity: 0.95; transform: scale(0.7) rotate(0deg); filter: hue-rotate(0deg); }
+  25%  { opacity: 0.8;  transform: scale(1.1) rotate(40deg); filter: hue-rotate(140deg); }
+  60%  { opacity: 0.35; transform: scale(1.3) rotate(90deg); filter: hue-rotate(260deg); }
+  100% { opacity: 0;    transform: scale(1.5) rotate(140deg); filter: hue-rotate(360deg); }
 }
 
-/* Blur + washed-out colours; the transition on bang-fade eases it back to normal */
-body.bang-blur { filter: blur(8px) brightness(1.6) saturate(0.3); }
-body.bang-fade { transition: filter 6s cubic-bezier(0.7, 0, 0.9, 1); }
-/* Double vision: a red and a cyan copy of every text, offset sideways */
-body.bang-blur #ui-root { text-shadow: 3px 0 0 rgba(255, 0, 90, 0.6), -3px 0 0 rgba(0, 220, 255, 0.6); }
-body.bang-fade #ui-root { transition: text-shadow 6s cubic-bezier(0.7, 0, 0.9, 1); }
+/* Sensory overload: blown-out brightness/contrast, oversaturated hue-cycling colours,
+   chromatic double vision – on the canvas and the UI, easing back within ~1.5 s */
+html.bang-over #scene,
+html.bang-over #ui-root { animation: overstim var(--bang-dur, 1.4s) ease-out 1; }
+@keyframes overstim {
+  0%   { filter: brightness(2.6) contrast(1.9) saturate(3.5) hue-rotate(0deg) blur(3px)
+               drop-shadow(8px 0 0 #ff0060) drop-shadow(-8px 0 0 #00e5ff); }
+  15%  { filter: brightness(2.0) contrast(1.7) saturate(4) hue-rotate(120deg) blur(1.5px)
+               drop-shadow(-6px 3px 0 #ffe600) drop-shadow(6px -3px 0 #b000ff); }
+  35%  { filter: brightness(1.6) contrast(1.5) saturate(3) hue-rotate(240deg) blur(1px)
+               drop-shadow(4px 0 0 #00ff8c) drop-shadow(-4px 0 0 #ff2d95); }
+  60%  { filter: brightness(1.25) contrast(1.2) saturate(2) hue-rotate(330deg)
+               drop-shadow(2px 0 0 #ff0060) drop-shadow(-2px 0 0 #00e5ff); }
+  100% { filter: none; }
+}
 
-body.bangShake { animation: bangShake 1.2s ease-out 1; }
+body.bangShake { animation: bangShake 0.7s ease-out 1; }
 @keyframes bangShake {
   0%, 100% { translate: 0 0; rotate: 0deg; }
   10% { translate: calc(-14px * var(--bang, 1)) calc(8px * var(--bang, 1)); rotate: -1deg; }

@@ -338,22 +338,26 @@ export class UI {
 
     // Heavy screen shake (always)
     this.restart(body, 'bangShake');
-    setTimeout(() => body.classList.remove('bangShake'), 1300);
+    setTimeout(() => body.classList.remove('bangShake'), 750);
 
     if (this.flashOn) {
-      // Full-screen white flash: jumps to opacity 1, fades out over 2-2.5 s
+      // Coloured overexposure burst (no white wall), ~1.2–1.8 s
       const layer = this.el.bangLayer;
-      layer.style.setProperty('--bang-dur', `${(3 + 2 * s).toFixed(2)}s`);
+      const dur = 1.0 + 0.4 * s; // ~1.2–1.8 s
+      const root = document.documentElement;
+      root.style.setProperty('--bang-dur', `${dur.toFixed(2)}s`);
+      // Random burst centre and rotation so no two bangs look the same
+      layer.style.setProperty('--bx', `${20 + Math.random() * 60}%`);
+      layer.style.setProperty('--by', `${20 + Math.random() * 60}%`);
+      layer.style.setProperty('--ba', `${Math.floor(Math.random() * 360)}deg`);
       this.restart(layer, 'go');
 
-      // Blur + desaturate + double vision, easing off via the bang-fade transition
-      body.classList.remove('bang-fade');
-      body.classList.add('bang-blur');
-      void body.offsetWidth; // commit the blurred style before the transition is enabled
-      body.classList.add('bang-fade');
-      body.classList.remove('bang-blur');
+      // Overstimulation filter on canvas + UI (restart the animation each bang)
+      root.classList.remove('bang-over');
+      void root.offsetWidth;
+      root.classList.add('bang-over');
       clearTimeout(this._fadeT);
-      this._fadeT = setTimeout(() => body.classList.remove('bang-fade'), 6500);
+      this._fadeT = setTimeout(() => root.classList.remove('bang-over'), dur * 1000 + 100);
     }
     return true;
   }
